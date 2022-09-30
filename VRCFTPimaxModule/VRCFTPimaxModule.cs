@@ -1,40 +1,61 @@
 ﻿using System;
+using System.IO;
+using System.Reflection;
+using System.Text.Json;
 using VRCFaceTracking;
 
 namespace VRCFTPimaxModule
 {
-	public class VRCFTPimaxModule : VRCFaceTracking.ExtTrackingModule
+	public class VRCFTPimaxModule : ExtTrackingModule
 	{
 		private readonly EyeTracker _eyeTracker = new EyeTracker();
 		
-		private float lastGoodLeftX;
-		private float lastGoodRightX;
-		private float lastGoodLeftY;
-		private float lastGoodRightY;
-		private int blinkTimerCombined;
-		private int blinkTimerLeft;
-		private int blinkTimerRight;
-		private int trackingLossTimerLeft;
-		private int trackingLossTimerRight;
+		private float _lastGoodLeftX;
+		private float _lastGoodRightX;
+		private float _lastGoodLeftY;
+		private float _lastGoodRightY;
+		private int _blinkTimerCombined;
+		private int _blinkTimerLeft;
+		private int _blinkTimerRight;
+		private int _trackingLossTimerLeft;
+		private int _trackingLossTimerRight;
+		private readonly SimpleMovingAverage _movingAverageLeftX, _movingAverageLeftY, _movingAverageRightX, _movingAverageRightY;
 		
 		// Configurable
-		private int _movingAverageBufferSize = 4;
-		private int _averageSteps = 10;
-		private int _blinkTime = 2, _winkTime = 6;
-		private SimpleMovingAverage MovingAverageLeftX, MovingAverageLeftY, MovingAverageRightX, MovingAverageRightY;
-		private MinMaxRange _xLeftRange, _xRightRange, _yLeftRange, _yRightRange;
-
+		private class Config
+		{
+			public int MovingAverageBufferSize { get; set; } = 4;
+			public int AverageSteps { get; set; } = 10;
+			public int BlinkTime { get; set; } = 2;
+			public int WinkTime { get; set; } = 6;
+			public MinMaxRange XLeftRange { get; set; } = new MinMaxRange(0, 1);
+			public MinMaxRange XRightRange { get; set; }  = new MinMaxRange(0, 1);
+			public MinMaxRange YLeftRange { get; set; } = new MinMaxRange(0, 1);
+			public MinMaxRange YRightRange { get; set; } = new MinMaxRange(0, 1);
+			public int MovementMultiplierX { get; set; } = 1;
+			public int MovementMultiplierY { get; set; } = 1;
+		}
+		
+		private Config _config = new Config();
+		
 		public VRCFTPimaxModule()
 		{
-			MovingAverageLeftX = new SimpleMovingAverage(_averageSteps);
-			MovingAverageLeftY = new SimpleMovingAverage(_averageSteps);
-			MovingAverageRightX = new SimpleMovingAverage(_averageSteps);
-			MovingAverageRightY = new SimpleMovingAverage(_averageSteps);
+			// Get location of currently executing assembly, then create or open the config file
+			var configPath = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "VRCFTPimaxModule.json");
 			
-			_xLeftRange = new MinMaxRange(0, 1);
-			_xRightRange = new MinMaxRange(0, 1);
-			_yLeftRange = new MinMaxRange(0, 1);
-			_yRightRange = new MinMaxRange(0, 1);
+			// If the config file doesn't exist, create it with default values
+			if (!File.Exists(configPath))
+				File.WriteAllText(configPath, JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true }));
+				
+				// Now open the config file and read the values
+			var config = File.ReadAllText(configPath);
+			JsonSerializer.Deserialize<Config>(config);
+			
+
+			_movingAverageLeftX = new SimpleMovingAverage(_config.AverageSteps);
+			_movingAverageLeftY = new SimpleMovingAverage(_config.AverageSteps);
+			_movingAverageRightX = new SimpleMovingAverage(_config.AverageSteps);
+			_movingAverageRightY = new SimpleMovingAverage(_config.AverageSteps);
 		}
 		
 		public override (bool SupportsEye, bool SupportsLip) Supported => (true, false);
@@ -64,7 +85,7 @@ namespace VRCFTPimaxModule
 			
 			if (leftTrackingLoss)
 			{
-				trackingLossTimerLeft = 0;
+				_trackingLossTimerLeft = 0;
 				if (!rightTrackingLoss)
 				{
 					pupilCenterLeftX = pupilCenterRightX;
@@ -72,13 +93,13 @@ namespace VRCFTPimaxModule
 				}
 				else
 				{
-					pupilCenterLeftX = lastGoodLeftX;
-					pupilCenterLeftY = lastGoodLeftY;
+					pupilCenterLeftX = _lastGoodLeftX;
+					pupilCenterLeftY = _lastGoodLeftY;
 				}
 			}
-			else if (trackingLossTimerLeft < _movingAverageBufferSize)
+			else if (_trackingLossTimerLeft < _config.MovingAverageBufferSize)
 			{
-				trackingLossTimerLeft++;
+				_trackingLossTimerLeft++;
 				if (!rightTrackingLoss)
 				{
 					pupilCenterLeftX = pupilCenterRightX;
@@ -86,19 +107,19 @@ namespace VRCFTPimaxModule
 				}
 				else
 				{
-					pupilCenterLeftX = lastGoodLeftX;
-					pupilCenterLeftY = lastGoodLeftY;
+					pupilCenterLeftX = _lastGoodLeftX;
+					pupilCenterLeftY = _lastGoodLeftY;
 				}
 			}
 			else
 			{
-				lastGoodLeftX = pupilCenterLeftX;
-				lastGoodLeftY = pupilCenterLeftY;
+				_lastGoodLeftX = pupilCenterLeftX;
+				_lastGoodLeftY = pupilCenterLeftY;
 			}
 
 			if (rightTrackingLoss)
 			{
-				trackingLossTimerRight = 0;
+				_trackingLossTimerRight = 0;
 				if (!leftTrackingLoss)
 				{
 					pupilCenterRightX = pupilCenterLeftX;
@@ -106,13 +127,13 @@ namespace VRCFTPimaxModule
 				}
 				else
 				{
-					pupilCenterRightX = lastGoodRightX;
-					pupilCenterRightY = lastGoodRightY;
+					pupilCenterRightX = _lastGoodRightX;
+					pupilCenterRightY = _lastGoodRightY;
 				}
 			}
-			else if (trackingLossTimerRight < _movingAverageBufferSize)
+			else if (_trackingLossTimerRight < _config.MovingAverageBufferSize)
 			{
-				trackingLossTimerRight++;
+				_trackingLossTimerRight++;
 				if (!leftTrackingLoss)
 				{
 					pupilCenterRightX = pupilCenterLeftX;
@@ -120,24 +141,24 @@ namespace VRCFTPimaxModule
 				}
 				else
 				{
-					pupilCenterRightX = lastGoodRightX;
-					pupilCenterRightY = lastGoodRightY;
+					pupilCenterRightX = _lastGoodRightX;
+					pupilCenterRightY = _lastGoodRightY;
 				}
 			}
 			else
 			{
-				lastGoodRightX = pupilCenterRightX;
-				lastGoodRightY = pupilCenterRightY;
+				_lastGoodRightX = pupilCenterRightX;
+				_lastGoodRightY = pupilCenterRightY;
 			}
 
 			int num = 1;
 			int num2 = 1;
 			if (leftBlink == 1f && rightBlink == 1f)
 			{
-				blinkTimerCombined++;
-				blinkTimerLeft++;
-				blinkTimerRight++;
-				if (blinkTimerCombined >= _blinkTime)
+				_blinkTimerCombined++;
+				_blinkTimerLeft++;
+				_blinkTimerRight++;
+				if (_blinkTimerCombined >= _config.BlinkTime)
 				{
 					num = 0;
 					num2 = 0;
@@ -148,49 +169,55 @@ namespace VRCFTPimaxModule
 			{
 				if (leftBlink == 1f)
 				{
-					blinkTimerLeft++;
-					if (blinkTimerLeft >= _winkTime)
+					_blinkTimerLeft++;
+					if (_blinkTimerLeft >= _config.WinkTime)
 					{
 						num = 0;
 					}
 				}
 				else
 				{
-					blinkTimerLeft = 0;
+					_blinkTimerLeft = 0;
 				}
 
 				if (rightBlink == 1f)
 				{
-					blinkTimerRight++;
-					if (blinkTimerRight >= _winkTime)
+					_blinkTimerRight++;
+					if (_blinkTimerRight >= _config.WinkTime)
 					{
 						num2 = 0;
 					}
 				}
 				else
 				{
-					blinkTimerRight = 0;
+					_blinkTimerRight = 0;
 				}
 			}
 
 			if (leftBlink == 0f && rightBlink == 0f)
 			{
-				blinkTimerCombined = 0;
-				blinkTimerLeft = 0;
-				blinkTimerRight = 0;
+				_blinkTimerCombined = 0;
+				_blinkTimerLeft = 0;
+				_blinkTimerRight = 0;
 			}
 
 			UnifiedTrackingData.LatestEyeData.Left.Openness = num;
 			UnifiedTrackingData.LatestEyeData.Right.Openness = num2;
+
+			pupilCenterLeftX *= _config.MovementMultiplierX;
+			pupilCenterLeftY *= _config.MovementMultiplierY;
 			
-			pupilCenterLeftX = MovingAverageLeftX.Update(pupilCenterLeftX);
-			pupilCenterRightX = MovingAverageRightX.Update(pupilCenterRightX);
-			pupilCenterLeftY = MovingAverageLeftY.Update(pupilCenterLeftY);
-			pupilCenterRightY = MovingAverageRightY.Update(pupilCenterRightY);
-			pupilCenterLeftX = NormalizeFloatAroundZero(pupilCenterLeftX, _xLeftRange);
-			pupilCenterRightX = NormalizeFloatAroundZero(pupilCenterRightX, _xRightRange);
-			pupilCenterLeftY = NormalizeFloatAroundZero(pupilCenterLeftY, _yLeftRange);
-			pupilCenterRightY = NormalizeFloatAroundZero(pupilCenterRightY, _yRightRange);
+			pupilCenterRightX *= _config.MovementMultiplierX;
+			pupilCenterRightY *= _config.MovementMultiplierY;
+			
+			pupilCenterLeftX = _movingAverageLeftX.Update(pupilCenterLeftX);
+			pupilCenterRightX = _movingAverageRightX.Update(pupilCenterRightX);
+			pupilCenterLeftY = _movingAverageLeftY.Update(pupilCenterLeftY);
+			pupilCenterRightY = _movingAverageRightY.Update(pupilCenterRightY);
+			pupilCenterLeftX = NormalizeFloatAroundZero(pupilCenterLeftX, _config.XLeftRange);
+			pupilCenterRightX = NormalizeFloatAroundZero(pupilCenterRightX, _config.XRightRange);
+			pupilCenterLeftY = NormalizeFloatAroundZero(pupilCenterLeftY, _config.YLeftRange);
+			pupilCenterRightY = NormalizeFloatAroundZero(pupilCenterRightY, _config.YRightRange);
 
 			UnifiedTrackingData.LatestEyeData.Left.Look.x = pupilCenterLeftX;
 			UnifiedTrackingData.LatestEyeData.Right.Look.x = pupilCenterRightX;

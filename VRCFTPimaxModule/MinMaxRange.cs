@@ -2,9 +2,8 @@
 {
     public class MinMaxRange
     {
-        public float Max;
-
-        public float Min;
+        public float Max { get; set; }
+        public float Min { get; set; }
 
         public MinMaxRange(float min, float max)
         {
